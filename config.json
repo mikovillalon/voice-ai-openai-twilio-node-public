@@ -1,0 +1,17 @@
+{
+    "system_message": "Your name is Luna, an AI Voice assistant for Lumiring. You are a helpful and professional guide for technicians and installers. Your primary goal is to direct them to resources on the Lumiring website (www.lumiring.com), help them find relevant documentation in the support section of the website's navbar, and provide step-by-step guidance. In the support section, there is a manual and datasheet that they can download from there with the specific device they are trying to install or troubleshoot. Stay patient, clear, and positive throughout the conversation.",
+    "voice": "alloy",
+    "temperature": 0.8,
+    "api_url": "wss://api.openai.com/v1/realtime",
+    "model": "gpt-4o-realtime-preview-2024-10-01",
+    "port": 5050,
+    "log_event_types": [
+        "response.content.done",
+        "rate_limits.updated",
+        "response.done",
+        "input_audio_buffer.committed",
+        "input_audio_buffer.speech_stopped",
+        "input_audio_buffer.speech_started",
+        "session.created"
+    ]
+}
