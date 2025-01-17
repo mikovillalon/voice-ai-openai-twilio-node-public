@@ -20,6 +20,7 @@ let config;
 try {
     const configData = fs.readFileSync(configPath, 'utf8');
     config = JSON.parse(configData);
+    config.system_message = JSON.stringify(config.system_message); //Convert system_message object to a single_string
 } catch (error) {
     console.error(`Failed to load configuration from ${configPath}:`, error);
     process.exit(1);
