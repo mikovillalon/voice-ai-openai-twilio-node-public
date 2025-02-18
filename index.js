@@ -43,9 +43,9 @@ fastify.get('/', async (request, reply) => {
 fastify.all('/incoming-call', async (request, reply) => {
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
                           <Response>
-                              <Say>Please wait while we connect your call to Luna, Lumiring AI voice assistant, powered by Twilio and the Open-A.I. Realtime API</Say>
+                              <Say voice="Polly.Matthew">Thank you for calling! I am connecting you to Luna, Lumiring's technical support. Please wait for a momment...</Say>
                               <Pause length="1"/>
-                              <Say>O.K. your call is connected, please start talking!</Say>
+                              <Say voice ="Polly.Matthew">Alright, you're all set! please state your concern.</Say>
                               <Connect>
                                   <Stream url="wss://${request.headers.host}/media-stream" />
                               </Connect>
