@@ -20,7 +20,7 @@ let config;
 try {
     const configData = fs.readFileSync(configPath, 'utf8');
     config = JSON.parse(configData);
-    config.system_message = JSON.stringify(config.system_message); //Convert system_message object to a single_string
+    config.system_message = JSON.stringify(config.system_message); // Convert system_message object to string
 } catch (error) {
     console.error(`Failed to load configuration from ${configPath}:`, error);
     process.exit(1);
@@ -43,9 +43,9 @@ fastify.get('/', async (request, reply) => {
 fastify.all('/incoming-call', async (request, reply) => {
     const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
                           <Response>
-                              <Say voice="Polly.Matthew">Thank you for calling! I am connecting you to Luna, Lumiring's technical support. Please wait for a momment...</Say>
+                              <Say voice="Polly.Matthew">Thank you for calling! I am connecting you to Luna, Lumiring's technical support. Please wait for a moment...</Say>
                               <Pause length="1"/>
-                              <Say voice ="Polly.Matthew">Alright, you're all set! please state your concern.</Say>
+                              <Say voice="Polly.Matthew">Alright, you're all set! Please state your concern.</Say>
                               <Connect>
                                   <Stream url="wss://${request.headers.host}/media-stream" />
                               </Connect>
@@ -95,6 +95,8 @@ fastify.register(async (fastify) => {
                 if (log_event_types.includes(response.type)) {
                     console.log(`Received event: ${response.type}`, response);
                 }
+
+                // Handle AI audio responses and forward to Twilio
                 if (response.type === 'response.audio.delta' && response.delta) {
                     const audioDelta = {
                         event: 'media',
@@ -103,14 +105,36 @@ fastify.register(async (fastify) => {
                     };
                     connection.send(JSON.stringify(audioDelta));
                 }
+
+                // New Integration: Handle Speech Interruption
+                if (response.type === "input_audio_buffer.speech_started") {
+                    console.log('Speech Start detected:', response.type);
+
+                    // Clear Twilio buffer
+                    const clearTwilio = {
+                        event: 'clear',
+                        streamSid: streamSid
+                    };
+                    connection.send(JSON.stringify(clearTwilio));
+                    console.log('Cleared Twilio buffer.');
+
+                    // Send interrupt to OpenAI to stop AI speech
+                    const interruptMessage = {
+                        type: 'response.cancel'
+                    };
+                    openAiWs.send(JSON.stringify(interruptMessage));
+                    console.log('Sent interrupt to OpenAI to cancel speech.');
+                }
             } catch (error) {
                 console.error('Error processing OpenAI message:', error, 'Raw message:', data);
             }
         });
 
+        // Handle incoming messages from Twilio
         connection.on('message', (message) => {
             try {
                 const data = JSON.parse(message);
+
                 switch (data.event) {
                     case 'media':
                         if (openAiWs.readyState === WebSocket.OPEN) {
@@ -121,10 +145,12 @@ fastify.register(async (fastify) => {
                             openAiWs.send(JSON.stringify(audioAppend));
                         }
                         break;
+
                     case 'start':
                         streamSid = data.start.streamSid;
                         console.log('Incoming stream has started', streamSid);
                         break;
+
                     default:
                         console.log('Received non-media event:', data.event);
                         break;
