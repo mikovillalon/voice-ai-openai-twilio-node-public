@@ -13,12 +13,15 @@ export async function createZohoDeskTicket(subject, description, email = 'caller
       throw new Error('Department ID is missing in the environment variables');
     }
 
+    // Format description to replace \n with <br> for better display in Zoho Desk
+    const formattedDescription = description.replace(/\n/g, '<br>'); 
+
     // Log the ticket data being sent for debugging
-    console.log("Creating Zoho Desk Ticket with data:", {
+    console.log("Creating Zoho Desk Ticket with formatted description:", {
       subject,
       departmentId,
       email,
-      description
+      formattedDescription
     });
 
     let accessToken = process.env.ZOHO_ACCESS_TOKEN;
@@ -34,7 +37,7 @@ export async function createZohoDeskTicket(subject, description, email = 'caller
       subject,
       departmentId: departmentId,  // Ensure this is the correct department ID
       contact: { email },
-      description,
+      description: formattedDescription, // Use the formatted description with <br> tags
       priority: "Medium", // Ensure valid priority value (e.g., "Medium")
       status: "Open" // Ensure valid status value (e.g., "Open")
     };
