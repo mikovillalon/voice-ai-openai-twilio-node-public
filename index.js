@@ -8,7 +8,7 @@ import fastifyWs from '@fastify/websocket';
 import twilio from 'twilio';
 import { fileURLToPath } from 'url';
 import { whisperTranscribe } from './whisperService.js';
-import { createZohoDeskTicket } from './ticketService.js'; // ✅ NEW
+import { createZohoDeskTicket } from './ticketService.js'; // ✅ Updated to use auto-generated subject
 
 dotenv.config();
 
@@ -134,7 +134,7 @@ fastify.register(async (fastify) => {
             const storedCallSid = callSid || [...activeCalls.keys()].pop();
             if (storedCallSid) {
               console.log(`[AUTO-TRANSFER] Trigger detected: "${transcript}"`);
-              setTimeout(() => handleCallTransfer(storedCallSid, "+639265803317"), 6000);
+              setTimeout(() => handleCallTransfer(storedCallSid, "+17164277733"), 6000);
             }
           }
         }
@@ -193,7 +193,9 @@ fastify.register(async (fastify) => {
         }
 
         const transcriptText = transcriptList.map(t => `${t.speaker}: ${t.message}`).join('\n');
-        await createZohoDeskTicket('Luna Support Call', transcriptText);
+
+        // ✅ Updated to auto-generate subject based on conversation
+        await createZohoDeskTicket(transcriptText, 'caller@lumiring.com');
 
       } catch (err) {
         console.error('[Whisper Logging Error]', err);
