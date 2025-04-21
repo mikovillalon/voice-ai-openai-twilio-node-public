@@ -8,12 +8,16 @@ import fastifyWs from '@fastify/websocket';
 import twilio from 'twilio';
 import { fileURLToPath } from 'url';
 import { whisperTranscribe } from './whisperService.js';
-import { createZohoDeskTicket } from './ticketService.js'; // ✅ Updated to use auto-generated subject
+import { createZohoDeskTicket } from './ticketService.js';
+import { extractTicketSubjectFromConversation } from './extractTicketSubjectFromConversation.js';
+import { registerCaller, getCallerInfo, debugRegistry } from './callRegistry.js';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const pendingCallers = new Map();
 
 const { OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN } = process.env;
 if (!OPENAI_API_KEY || !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
@@ -37,35 +41,38 @@ try {
 const fastify = Fastify();
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
+
 const { system_message, voice, temperature, api_url, model } = config;
-const activeCalls = new Map();
 const transcriptLogPath = path.join(__dirname, 'transcript.log');
 
-// Handle incoming calls
 fastify.all('/incoming-call', async (request, reply) => {
   const callSid = request.body.CallSid || request.query.CallSid;
-  if (callSid) activeCalls.set(callSid, { callSid });
+  const from = request.body.From || request.query.From || 'Unknown';
 
-  const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
-    <Response>
-        <Say voice="Polly.Matthew">Thank you for calling! I am connecting you to Luna, Lumiring's technical support. Please wait for a moment...</Say>
-        <Pause length="1"/>
-        <Say voice="Polly.Matthew">Alright, you're all set! Please state your concern.</Say>
-        <Connect>
-            <Stream url="wss://${request.headers.host}/media-stream?CallSid=${callSid}" />
-        </Connect>
-    </Response>`;
+  console.log('[Incoming Call] Query:', request.query);
+  console.log('[Incoming Call] Body:', request.body);
 
-  reply.type('text/xml').send(twimlResponse);
+  if (callSid && from) {
+    pendingCallers.set(callSid, from);
+    console.log(`🕓 Stored pending caller ${from} for CallSid ${callSid}`);
+  }
+
+  const voiceResponse = new twilio.twiml.VoiceResponse();
+  voiceResponse.say({ voice: 'Polly.Matthew' }, "Thank you for calling. I am connecting you to Luna, Lumiring technical support. Please wait a moment.");
+  voiceResponse.pause({ length: 1 });
+  voiceResponse.say({ voice: 'Polly.Matthew' }, "You are now connected. Please state your concern.");
+  voiceResponse.connect().stream({
+    url: `wss://${request.headers.host}/media-stream`
+  });
+
+  reply.type('text/xml').send(voiceResponse.toString());
 });
 
-// Handle media stream
 fastify.register(async (fastify) => {
   fastify.get('/media-stream', { websocket: true }, (connection, req) => {
-    const callSid = new URL(req.url, `http://${req.headers.host}`).searchParams.get('CallSid');
-    const callStartTime = Date.now();
-
+    let callSid = null;
     let streamSid = null;
+    const callStartTime = Date.now();
     let allowInterruption = true;
     let audioChunks = [];
     let transcriptList = [];
@@ -84,6 +91,32 @@ fastify.register(async (fastify) => {
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         "OpenAI-Beta": "realtime=v1"
+      }
+    });
+
+    connection.on('message', (msg) => {
+      const data = JSON.parse(msg);
+
+      if (data.event === 'start') {
+        streamSid = data.start.streamSid;
+        callSid = data.start.callSid;
+        console.log("🛰️ WebSocket started for CallSid:", callSid);
+
+        const from = pendingCallers.get(callSid) || 'Unknown';
+        console.log("📥 Retrieved pending caller from map:", from);
+
+        if (callSid && from) {
+          registerCaller(callSid, from);
+          console.log(`📞 Registered Caller: ${from} (CallSid: ${callSid})`);
+          pendingCallers.delete(callSid);
+        }
+      } else if (data.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
+        const payload = data.media.payload;
+        audioChunks.push(Buffer.from(payload, 'base64'));
+        openAiWs.send(JSON.stringify({
+          type: 'input_audio_buffer.append',
+          audio: payload
+        }));
       }
     });
 
@@ -131,10 +164,9 @@ fastify.register(async (fastify) => {
           ];
 
           if (transferPhrases.some(p => transcript.toLowerCase().includes(p))) {
-            const storedCallSid = callSid || [...activeCalls.keys()].pop();
-            if (storedCallSid) {
+            if (callSid) {
               console.log(`[AUTO-TRANSFER] Trigger detected: "${transcript}"`);
-              setTimeout(() => handleCallTransfer(storedCallSid, "+17164277733"), 6000);
+              setTimeout(() => handleCallTransfer(callSid, "+639265803317"), 6000);
             }
           }
         }
@@ -150,20 +182,6 @@ fastify.register(async (fastify) => {
 
       } catch (err) {
         console.error('Error processing OpenAI message:', err, 'Raw message:', data);
-      }
-    });
-
-    connection.on('message', (msg) => {
-      const data = JSON.parse(msg);
-      if (data.event === 'start') {
-        streamSid = data.start.streamSid;
-      } else if (data.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
-        const payload = data.media.payload;
-        audioChunks.push(Buffer.from(payload, 'base64'));
-        openAiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: payload
-        }));
       }
     });
 
@@ -193,9 +211,16 @@ fastify.register(async (fastify) => {
         }
 
         const transcriptText = transcriptList.map(t => `${t.speaker}: ${t.message}`).join('\n');
+        debugRegistry();
 
-        // ✅ Updated to auto-generate subject based on conversation
-        await createZohoDeskTicket(transcriptText, 'caller@lumiring.com');
+        const callerInfo = getCallerInfo(callSid);
+        console.log("📦 Retrieved Caller Info:", callerInfo);
+
+        const callerNumber = callerInfo?.phoneNumber || 'Unknown Number';
+        const fullDescription = `Caller Number: ${callerNumber}\n\n${transcriptText}`;
+        const subject = await extractTicketSubjectFromConversation(transcriptText);
+
+        await createZohoDeskTicket(subject, fullDescription, 'caller@lumiring.com');
 
       } catch (err) {
         console.error('[Whisper Logging Error]', err);
@@ -204,7 +229,6 @@ fastify.register(async (fastify) => {
   });
 });
 
-// Function to handle call transfer to agent
 async function handleCallTransfer(callSid, agentNumber) {
   try {
     const conferenceName = `transfer_${callSid}`;
@@ -223,7 +247,7 @@ async function handleCallTransfer(callSid, agentNumber) {
     await twilioClient.calls.create({
       to: agentNumber,
       from: call.from,
-      twiml: `<Response><Say>Connecting you to a caller from Luna AI.</Say><Dial><Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">${conferenceName}</Conference></Dial></Response>`
+      twiml: `<Response><Say>Connecting you to a caller from Luna AI.</Say><Dial><Conference startConferenceOnEnter=\"true\" endConferenceOnExit=\"true\" beep=\"false\">${conferenceName}</Conference></Dial></Response>`
     });
 
     console.log(`[Transfer] Call ${callSid} transferred successfully.`);
@@ -232,7 +256,6 @@ async function handleCallTransfer(callSid, agentNumber) {
   }
 }
 
-// Start the Fastify server
 const PORT = process.env.PORT || 5050;
 fastify.listen({ port: PORT, host: '0.0.0.0' }, () => {
   console.log(`Server is listening on port ${PORT}`);
