@@ -42,7 +42,8 @@
         "I’d like to speak to a representative.",
         "Please connect me to support.",
         "Can I talk to someone in sales?",
-        "I need to speak with a real person."
+        "I need to speak with a real person.",
+        "It is urgent, need to speak to a person"
       ],
       "contact_information": {
         "technical_support": {
