@@ -1,3 +1,4 @@
+// index.js
 import Fastify from 'fastify';
 import WebSocket from 'ws';
 import fs from 'fs';
@@ -11,6 +12,7 @@ import { whisperTranscribe } from './whisperService.js';
 import { createZohoDeskTicket } from './ticketService.js';
 import { extractTicketSubjectFromConversation } from './extractTicketSubjectFromConversation.js';
 import { registerCaller, getCallerInfo, debugRegistry } from './callRegistry.js';
+import { checkAndHandleEndCall } from './endCallHandler.js'; // ✅ Added for call end detection
 
 dotenv.config();
 
@@ -156,6 +158,9 @@ fastify.register(async (fastify) => {
         if (response.type === 'response.done') {
           const transcript = response.response.output?.[0]?.content?.[0]?.transcript || '';
           logTranscript("Luna", transcript);
+
+          const shouldEnd = await checkAndHandleEndCall(transcript, callSid, connection, openAiWs, streamSid);
+          if (shouldEnd) return;
 
           const transferPhrases = [
             "speak to an agent", "talk to a person", "human", "representative",
