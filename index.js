@@ -12,7 +12,8 @@ import { whisperTranscribe } from './whisperService.js';
 import { createZohoDeskTicket } from './ticketService.js';
 import { extractTicketSubjectFromConversation } from './extractTicketSubjectFromConversation.js';
 import { registerCaller, getCallerInfo, debugRegistry } from './callRegistry.js';
-import { checkAndHandleEndCall } from './endCallHandler.js'; // ✅ Added for call end detection
+import { checkAndHandleEndCall } from './endCallHandler.js';
+import { startCallTimer, stopCallTimer } from './calltimer.js';
 
 dotenv.config();
 
@@ -112,6 +113,8 @@ fastify.register(async (fastify) => {
           console.log(`📞 Registered Caller: ${from} (CallSid: ${callSid})`);
           pendingCallers.delete(callSid);
         }
+
+        startCallTimer(callSid, connection, streamSid, openAiWs);
       } else if (data.event === 'media' && openAiWs.readyState === WebSocket.OPEN) {
         const payload = data.media.payload;
         audioChunks.push(Buffer.from(payload, 'base64'));
@@ -145,6 +148,10 @@ fastify.register(async (fastify) => {
       try {
         const response = JSON.parse(data);
 
+        if (response.type === 'turn.start') {
+          deliverPendingWarning(callSid, openAiWs);
+        }
+
         if (response.type === 'response.audio.delta' && response.delta) {
           allowInterruption = false;
           setTimeout(() => { allowInterruption = true }, 1500);
@@ -171,7 +178,7 @@ fastify.register(async (fastify) => {
           if (transferPhrases.some(p => transcript.toLowerCase().includes(p))) {
             if (callSid) {
               console.log(`[AUTO-TRANSFER] Trigger detected: "${transcript}"`);
-              setTimeout(() => handleCallTransfer(callSid, "+639263462060"), 6000);
+              setTimeout(() => handleCallTransfer(callSid, "+639265803317"), 6000);
             }
           }
         }
@@ -192,6 +199,7 @@ fastify.register(async (fastify) => {
 
     connection.on('close', async () => {
       openAiWs.close();
+      stopCallTimer(callSid);
 
       try {
         const completeAudio = Buffer.concat(audioChunks);
@@ -225,7 +233,7 @@ fastify.register(async (fastify) => {
         const fullDescription = `Caller Number: ${callerNumber}\n\n${transcriptText}`;
         const subject = await extractTicketSubjectFromConversation(transcriptText);
 
-        await createZohoDeskTicket(subject, fullDescription, 'caller@lumiring.com');
+        await createZohoDeskTicket(subject, fullDescription, 'test@lumiring.com');
 
       } catch (err) {
         console.error('[Whisper Logging Error]', err);
@@ -240,7 +248,7 @@ async function handleCallTransfer(callSid, agentNumber) {
     const call = await twilioClient.calls(callSid).fetch();
 
     const customerTwiml = new twilio.twiml.VoiceResponse();
-    customerTwiml.say("Please hold while we connect you to an agent.");
+    customerTwiml.say({ voice: 'Polly.Matthew' }, "Please hold while we connect you to an agent.");
     customerTwiml.dial().conference({
       startConferenceOnEnter: false,
       endConferenceOnExit: false,
@@ -252,7 +260,7 @@ async function handleCallTransfer(callSid, agentNumber) {
     await twilioClient.calls.create({
       to: agentNumber,
       from: call.from,
-      twiml: `<Response><Say>Connecting you to a caller from Luna AI.</Say><Dial><Conference startConferenceOnEnter=\"true\" endConferenceOnExit=\"true\" beep=\"false\">${conferenceName}</Conference></Dial></Response>`
+      twiml: `<Response><Say voice="Polly.Matthew">Connecting you to a caller from Luna AI.</Say><Dial><Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">${conferenceName}</Conference></Dial></Response>`
     });
 
     console.log(`[Transfer] Call ${callSid} transferred successfully.`);

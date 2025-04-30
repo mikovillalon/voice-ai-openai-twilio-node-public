@@ -104,7 +104,7 @@
       {
         "name": "Wireless Wiegand",
         "type": "Wireless Access Control Extender — One to Many Mode",
-        "description": "Extends control signals wirelessly in access control systems. Includes Gate (controller side) and Edge (door side), supporting peripheral devices like locks, sensors, and control panels."
+        "description": "Extends control signals wirelessly in access control systems. Includes Master (controller side) and Slave (door side), supporting peripheral devices like locks, sensors, and control panels."
       },
       {
         "name": "AIR-R",
