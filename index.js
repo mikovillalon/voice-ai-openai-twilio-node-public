@@ -178,7 +178,7 @@ fastify.register(async (fastify) => {
           if (transferPhrases.some(p => transcript.toLowerCase().includes(p))) {
             if (callSid) {
               console.log(`[AUTO-TRANSFER] Trigger detected: "${transcript}"`);
-              setTimeout(() => handleCallTransfer(callSid, "+639265803317"), 6000);
+              setTimeout(() => handleCallTransfer(callSid, "+17164277733"), 6000);
             }
           }
         }
